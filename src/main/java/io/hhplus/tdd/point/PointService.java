@@ -1,6 +1,8 @@
 package io.hhplus.tdd.point;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Service;
 public class PointService {
 
   private final PointRepository pointRepository;
+  private final ConcurrentHashMap<Long, ReentrantLock> userTable = new ConcurrentHashMap<>();
 
   public UserPoint point(long id) {
     UserPoint userPoint = pointRepository.selectById(id);
@@ -25,23 +28,40 @@ public class PointService {
       throw new IllegalArgumentException("충전금액은 0보다 커야합니다.");
     }
 
-    UserPoint getPoint = pointRepository.selectById(id);
+    //각 회원들을 독립적인 동시성을 보장하기위해
+    ReentrantLock lock = userTable.computeIfAbsent(id, accountId -> new ReentrantLock());
+    lock.lock();
 
-    UserPoint userPoint = pointRepository.insertOrUpdate(getPoint.id(), getPoint.point() + amount);
-    pointRepository.insert(id, amount, TransactionType.CHARGE, System.currentTimeMillis());
-    return userPoint;
+    try {
+      UserPoint getPoint = pointRepository.selectById(id);
+      UserPoint userPoint = pointRepository.insertOrUpdate(getPoint.id(),
+          getPoint.point() + amount);
+      pointRepository.insert(id, amount, TransactionType.CHARGE, System.currentTimeMillis());
+      return userPoint;
+    } finally {
+      lock.unlock();
+    }
   }
 
   public UserPoint use(long userId, long amount) {
-    UserPoint getPoint = pointRepository.selectById(userId);
+    //각 회원들을 독립적인 동시성을 보장하기위해
+    ReentrantLock lock = userTable.computeIfAbsent(userId, accountId -> new ReentrantLock());
+    lock.lock();
 
-    long totalPoint = getPoint.point() - amount;
-    if (totalPoint < 0) {
-      throw new IllegalArgumentException("보유포인트 보다 사용포인트가 큽니다.");
+    try {
+      UserPoint getPoint = pointRepository.selectById(userId);
+
+      long totalPoint = getPoint.point() - amount;
+      if (totalPoint < 0) {
+        throw new IllegalArgumentException("보유포인트 보다 사용포인트가 큽니다.");
+      }
+
+      UserPoint userPoint = pointRepository.insertOrUpdate(getPoint.id(), totalPoint);
+      pointRepository.insert(userId, amount, TransactionType.USE, System.currentTimeMillis());
+      return userPoint;
+
+    } finally {
+      lock.unlock();
     }
-
-    UserPoint userPoint = pointRepository.insertOrUpdate(getPoint.id(), totalPoint);
-    pointRepository.insert(userId, amount, TransactionType.USE, System.currentTimeMillis());
-    return userPoint;
   }
 }

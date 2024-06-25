@@ -27,6 +27,9 @@ dependencies {
     annotationProcessor(libs.lombok)
     annotationProcessor(libs.spring.boot.configuration.processor)
     testImplementation(libs.spring.boot.starter.test)
+
+    // testTestTemplate patch 작동할 수 있도록  HttpComponentsClientHttpRequestFactory 의존성
+    implementation("org.apache.httpcomponents.client5:httpclient5:5.3.1")
 }
 
 // about source and compilation
